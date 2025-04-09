@@ -1,52 +1,54 @@
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
+from PIL import Image
 import numpy as np
 import cv2
-from PIL import Image
-import io
+import os
 
-st.set_page_config(page_title="Ajanda - Image Cleaner", layout="centered")
+st.set_page_config(page_title="Ajanda - Image Inpainting", layout="wide")
 
-st.title("🧹 Ajanda - Remove Unwanted Areas from Image")
+st.title("🖌️ Ajanda - Remove Unwanted Parts from Images")
 
-uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "jpeg", "png"])
+with st.sidebar:
+    st.header("Settings")
+    stroke_width = st.slider("Brush Size", 10, 100, 40)
+    stroke_color = st.color_picker("Brush Color", "#ffffff")
+    bg_color = st.color_picker("Canvas Background", "#000000")
+    drawing_mode = st.selectbox("Drawing Mode", ("freedraw", "rect", "circle", "transform"))
+    real_time_update = st.checkbox("Update in Real Time", True)
+
+uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
+
 if uploaded_file:
-    # Load image
     image = Image.open(uploaded_file).convert("RGB")
-    img_np = np.array(image)
-
-    st.subheader("✏️ Draw on the image to mark unwanted area")
+    st.subheader("🎯 Draw over the area to remove")
 
     canvas_result = st_canvas(
-        fill_color="rgba(255, 0, 0, 0.4)",  # Red
-        stroke_width=25,
-        stroke_color="red",
+        fill_color="rgba(255, 255, 255, 1)",
+        stroke_width=stroke_width,
+        stroke_color=stroke_color,
+        background_color=bg_color,
         background_image=image,
-        update_streamlit=True,
-        height=img_np.shape[0],
-        width=img_np.shape[1],
-        drawing_mode="freedraw",
-        key="canvas"
+        update_streamlit=real_time_update,
+        height=image.height,
+        width=image.width,
+        drawing_mode=drawing_mode,
+        key="canvas",
     )
 
     if canvas_result.image_data is not None:
-        # Get the alpha channel from the canvas
-        mask_rgba = canvas_result.image_data.astype(np.uint8)
-        mask = mask_rgba[:, :, 3]  # Alpha channel
+        mask = Image.fromarray((canvas_result.image_data[:, :, 3] > 0).astype(np.uint8) * 255)
+        mask = mask.resize(image.size)
 
-        # Convert alpha to binary mask
-        mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)[1]
+        if st.button("🪄 Remove Selected Area"):
+            original_np = np.array(image)
+            mask_np = np.array(mask)
 
-        # Inpaint using OpenCV
-        inpainted_img = cv2.inpaint(img_np, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+            # Apply inpainting using OpenCV for now
+            result = cv2.inpaint(original_np, mask_np, 3, cv2.INPAINT_TELEA)
 
-        st.subheader("🧼 Cleaned Image")
-        st.image(inpainted_img, use_column_width=True)
-
-        # Convert back to PIL and download
-        result = Image.fromarray(inpainted_img)
-        buf = io.BytesIO()
-        result.save(buf, format="PNG")
-        byte_im = buf.getvalue()
-
-        st.download_button("📥 Download Cleaned Image", data=byte_im, file_name="cleaned_image.png", mime="image/png")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.image(image, caption="Original", use_column_width=True)
+            with col2:
+                st.image(result, caption="Inpainted", use_column_width=True)
